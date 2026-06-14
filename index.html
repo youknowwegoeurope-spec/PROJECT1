@@ -1102,7 +1102,7 @@
     const supabaseUrl = 'https://ucuunhffdhgwoujzsjqb.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjdXVuaGZmZGhnd291anpzanFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMTYxODcsImV4cCI6MjA5Njg5MjE4N30._YVAEOenTWki8b3dW0RNI1aXSQDYGq8OL1LVdKMyuVA';
     const { createClient } = window.supabase;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
     // DOM Elements
     const recordModal = document.getElementById('recordModal');
@@ -1153,7 +1153,7 @@
     // Load from Supabase DB
     async function loadData() {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseClient
           .from('damichelin')
           .select('*');
         
@@ -1391,7 +1391,7 @@
         const existingItem = db.find(item => item.id === editId);
         contentObj.image = base64ImageData ? base64ImageData : (existingItem ? existingItem.image : "");
         
-        const { error } = await supabase
+        const { error } = await supabaseClient
           .from('damichelin')
           .update({ content: JSON.stringify(contentObj) })
           .eq('id', editId);
@@ -1405,7 +1405,7 @@
         // Add mode
         contentObj.image = base64ImageData || "";
         
-        const { error } = await supabase
+        const { error } = await supabaseClient
           .from('damichelin')
           .insert([{ content: JSON.stringify(contentObj) }]);
         
@@ -1585,7 +1585,7 @@
     // Delete Item
     window.deleteItem = async function(id) {
       if (confirm('이 맛집 기록을 삭제하시겠습니까? 😢')) {
-        const { error } = await supabase
+        const { error } = await supabaseClient
           .from('damichelin')
           .delete()
           .eq('id', id);
@@ -1669,7 +1669,7 @@
           image: item.image
         };
 
-        const { error } = await supabase
+        const { error } = await supabaseClient
           .from('damichelin')
           .update({ content: JSON.stringify(contentObj) })
           .eq('id', id);
