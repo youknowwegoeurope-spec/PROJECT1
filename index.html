@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+KR:wght@300;400;700;900&display=swap" rel="stylesheet">
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
   <style>
     :root {
@@ -1096,6 +1098,12 @@
     let selectedRating = 3;
     let base64ImageData = "";
 
+    // Supabase Configuration
+    const supabaseUrl = 'https://ucuunhffdhgwoujzsjqb.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjdXVuaGZmZGhnd291anpzanFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMTYxODcsImV4cCI6MjA5Njg5MjE4N30._YVAEOenTWki8b3dW0RNI1aXSQDYGq8OL1LVdKMyuVA';
+    const { createClient } = window.supabase;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     // DOM Elements
     const recordModal = document.getElementById('recordModal');
     const timeEditModal = document.getElementById('timeEditModal');
@@ -1142,24 +1150,47 @@
       renderCards();
     });
 
-    // Load from LocalStorage
-    function loadData() {
-      const savedData = localStorage.getItem('life_restaurants');
-      if (savedData) {
-        try {
-          db = JSON.parse(savedData);
-        } catch (e) {
-          console.error('Failed to parse database', e);
-          db = [];
+    // Load from Supabase DB
+    async function loadData() {
+      try {
+        const { data, error } = await supabase
+          .from('damichelin')
+          .select('*');
+        
+        if (error) {
+          console.error('Failed to load data from Supabase', error);
+          return;
         }
+        
+        db = (data || []).map(row => {
+          let contentObj = {};
+          if (typeof row.content === 'string') {
+            try {
+              contentObj = JSON.parse(row.content);
+            } catch (e) {
+              console.error('Failed to parse content string', e);
+            }
+          } else if (row.content && typeof row.content === 'object') {
+            contentObj = row.content;
+          }
+          return {
+            id: row.id,
+            foodName: contentObj.foodName || '',
+            restaurantName: contentObj.restaurantName || '',
+            oneLineReview: contentObj.oneLineReview || '',
+            rating: typeof contentObj.rating === 'number' ? contentObj.rating : 3,
+            visitTime: contentObj.visitTime || '',
+            region: contentObj.region || '기타',
+            image: contentObj.image || '',
+            createdAt: row.created_at || contentObj.createdAt || new Date().toISOString()
+          };
+        });
+        
+        renderDashboard();
+        renderCards();
+      } catch (e) {
+        console.error('Unexpected error loading data', e);
       }
-    }
-
-    // Save to LocalStorage
-    function saveData() {
-      localStorage.setItem('life_restaurants', JSON.stringify(db));
-      renderDashboard();
-      renderCards();
     }
 
     // Set Default Datetime Local to current KST
@@ -1334,7 +1365,7 @@
     }
 
     // Submit Form
-    recordForm.addEventListener('submit', (e) => {
+    recordForm.addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const editId = document.getElementById('editItemId').value;
@@ -1346,38 +1377,46 @@
       const regionEl = document.querySelector('input[name="formRegion"]:checked');
       const region = regionEl ? regionEl.value : '기타';
 
+      const contentObj = {
+        foodName,
+        restaurantName,
+        oneLineReview,
+        rating: selectedRating,
+        visitTime,
+        region
+      };
+
       if (editId) {
         // Edit mode
-        const index = db.findIndex(item => item.id === editId);
-        if (index !== -1) {
-          db[index].foodName = foodName;
-          db[index].restaurantName = restaurantName;
-          db[index].oneLineReview = oneLineReview;
-          db[index].rating = selectedRating;
-          db[index].visitTime = visitTime;
-          db[index].region = region;
-          // Only update image if new image was provided
-          if (base64ImageData) {
-            db[index].image = base64ImageData;
-          }
+        const existingItem = db.find(item => item.id === editId);
+        contentObj.image = base64ImageData ? base64ImageData : (existingItem ? existingItem.image : "");
+        
+        const { error } = await supabase
+          .from('damichelin')
+          .update({ content: JSON.stringify(contentObj) })
+          .eq('id', editId);
+        
+        if (error) {
+          console.error('Error updating row in Supabase:', error);
+          alert('수정 중 오류가 발생했습니다: ' + error.message);
+          return;
         }
       } else {
         // Add mode
-        const newItem = {
-          id: Date.now().toString(),
-          foodName,
-          restaurantName,
-          oneLineReview,
-          rating: selectedRating,
-          visitTime,
-          region,
-          image: base64ImageData || "", // optional
-          createdAt: new Date().toISOString()
-        };
-        db.push(newItem);
+        contentObj.image = base64ImageData || "";
+        
+        const { error } = await supabase
+          .from('damichelin')
+          .insert([{ content: JSON.stringify(contentObj) }]);
+        
+        if (error) {
+          console.error('Error inserting row in Supabase:', error);
+          alert('등록 중 오류가 발생했습니다: ' + error.message);
+          return;
+        }
       }
 
-      saveData();
+      await loadData();
       closeRecordModal();
     });
 
@@ -1544,10 +1583,19 @@
     }
 
     // Delete Item
-    window.deleteItem = function(id) {
+    window.deleteItem = async function(id) {
       if (confirm('이 맛집 기록을 삭제하시겠습니까? 😢')) {
-        db = db.filter(item => item.id !== id);
-        saveData();
+        const { error } = await supabase
+          .from('damichelin')
+          .delete()
+          .eq('id', id);
+
+        if (error) {
+          console.error('Error deleting row from Supabase:', error);
+          alert('삭제 중 오류가 발생했습니다.');
+          return;
+        }
+        await loadData();
       }
     };
 
@@ -1600,7 +1648,7 @@
     closeTimeModalBtn.addEventListener('click', closeTimeEditModal);
     cancelTimeBtn.addEventListener('click', closeTimeEditModal);
 
-    saveTimeBtn.addEventListener('click', () => {
+    saveTimeBtn.addEventListener('click', async () => {
       const id = timeEditItemIdInput.value;
       const newTime = quickVisitTimeInput.value;
 
@@ -1609,10 +1657,29 @@
         return;
       }
 
-      const index = db.findIndex(item => item.id === id);
-      if (index !== -1) {
-        db[index].visitTime = newTime;
-        saveData();
+      const item = db.find(x => x.id === id);
+      if (item) {
+        const contentObj = {
+          foodName: item.foodName,
+          restaurantName: item.restaurantName,
+          oneLineReview: item.oneLineReview,
+          rating: item.rating,
+          visitTime: newTime,
+          region: item.region,
+          image: item.image
+        };
+
+        const { error } = await supabase
+          .from('damichelin')
+          .update({ content: JSON.stringify(contentObj) })
+          .eq('id', id);
+
+        if (error) {
+          console.error('Error updating time in Supabase:', error);
+          alert('시간 수정 중 오류가 발생했습니다.');
+          return;
+        }
+        await loadData();
       }
       closeTimeEditModal();
     });
